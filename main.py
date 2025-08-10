@@ -270,7 +270,7 @@ def extract(rar_path, extract_path, password=None):
     print(f"🛠️ Running: {' '.join(command)}")
 
     try:
-        subprocess.run(command, check=True, timeout=60)
+        subprocess.run(command, check=True)
         useroutput("✅ Extraction successful.")
     except subprocess.CalledProcessError as e:
         useroutput(f"❌ Extraction failed: {e}")
@@ -609,7 +609,7 @@ def start_reinstall_thread():
 
 if __name__ == "__main__":
     latest = get_latest_version()
-    current = "1.0.5"
+    current = "1.0.6"
 
     if latest and latest != current:
         print(f"New version {latest} found! Updating...")
