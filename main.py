@@ -609,7 +609,7 @@ def start_reinstall_thread():
 
 if __name__ == "__main__":
     latest = get_latest_version()
-    current = "1.0.6"
+    current = "1.0.7"
 
     if latest and latest != current:
         print(f"New version {latest} found! Updating...")
