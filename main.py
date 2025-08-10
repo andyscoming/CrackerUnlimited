@@ -47,6 +47,10 @@ HEADERS = {"Connection": "keep-alive", "User-Agent": "Mozilla/5.0"}
 LATEST_EXE_URL = "https://github.com/andyscoming/CrackerUnlimited/releases/latest/download/crackerunlimited.exe"
 VERSION_URL = "https://raw.githubusercontent.com/andyscoming/CrackerUnlimited/refs/heads/main/version.txt"
 
+UPDATER_URL = "https://github.com/andyscoming/CrackerUnlimited/raw/refs/heads/main/updater.exe"
+
+
+
 
 ### UPDATE FUNCTION ###
 
@@ -86,6 +90,23 @@ def install_update(new_exe_path):
 
 
 ### HELPER FUNCTIONS ###
+
+def ensure_updater():
+    """
+    Downloads updater.exe from GitHub if missing or outdated.
+    """
+    updater_path = os.path.join(os.path.dirname(sys.argv[0]), "updater.exe")
+
+    # Check if updater exists
+    if not os.path.exists(updater_path):
+        print("Updater not found, downloading...")
+        r = requests.get(UPDATER_URL, stream=True)
+        r.raise_for_status()
+        with open(updater_path, "wb") as f:
+            shutil.copyfileobj(r.raw, f)
+        print("Updater downloaded:", updater_path)
+
+    return updater_path
 
 # Function to save the file path to a data file
 def save_file_path(file_path):

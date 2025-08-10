@@ -11,7 +11,7 @@ target_exe = sys.argv[1]
 new_exe = sys.argv[2]
 
 print("Waiting for main app to close...")
-time.sleep(1)  # Give it a moment
+time.sleep(1)  # Give it a moment to exit
 
 # Wait until the file is not locked
 for _ in range(30):
@@ -26,6 +26,12 @@ else:
 
 print("Replacing file...")
 shutil.copy2(new_exe, target_exe)
+
+print("Cleaning up temporary update file...")
+try:
+    os.remove(new_exe)
+except Exception as e:
+    print(f"Warning: could not remove temp file: {e}")
 
 print("Restarting app...")
 os.startfile(target_exe)
