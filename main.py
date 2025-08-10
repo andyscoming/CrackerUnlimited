@@ -47,8 +47,7 @@ HEADERS = {"Connection": "keep-alive", "User-Agent": "Mozilla/5.0"}
 LATEST_EXE_URL = "https://github.com/andyscoming/CrackerUnlimited/releases/latest/download/crackerunlimited.exe"
 VERSION_URL = "https://raw.githubusercontent.com/andyscoming/CrackerUnlimited/refs/heads/main/version.txt"
 
-# Current app version
-CURRENT_VERSION = "1.0.3"
+
 ### UPDATE FUNCTION ###
 
 
@@ -75,20 +74,15 @@ def download_update():
 
 def install_update(new_exe_path):
     print("Installing update...")
-    # Start new process that waits for this one to exit, then replaces and restarts
-    updater_code = f"""
-import os, time, shutil, sys
-time.sleep(1)
-shutil.copy2(r"{new_exe_path}", r"{sys.argv[0]}")
-os.execv(r"{sys.argv[0]}", sys.argv)
-"""
-    updater_file = os.path.join(tempfile.gettempdir(), "updater.py")
-    with open(updater_file, "w", encoding="utf-8") as f:
-        f.write(updater_code)
+    # Path to precompiled updater.exe (bundled with your app or downloaded)
+    updater_exe = os.path.join(os.path.dirname(sys.argv[0]), "updater.exe")
 
-    subprocess.Popen([sys.executable, updater_file])
+    subprocess.Popen([
+        updater_exe,
+        sys.argv[0],       # Current exe path
+        new_exe_path       # Downloaded update path
+    ])
     sys.exit()
-
 
 
 ### HELPER FUNCTIONS ###
@@ -596,16 +590,17 @@ def start_reinstall_thread():
 
 
 if __name__ == "__main__":
-    latest_version = get_latest_version()
-    if latest_version and latest_version != CURRENT_VERSION:
-        print(f"New version {latest_version} found! Updating...")
+    latest = get_latest_version()
+    current = "1.0.4"
+
+    if latest and latest != current:
+        print(f"New version {latest} found! Updating...")
         new_exe = download_update()
         install_update(new_exe)
     else:
-        print("No update needed. Running normally.")
-
+        print("Already up to date!")
     # ---- MAIN APP CODE ----
-    print(f"App v{CURRENT_VERSION} running.")
+    print(f"App v{current} running.")
     # Create the main application window
     ctk.set_appearance_mode("dark")  # Dark mode for a modern look
     ctk.set_default_color_theme("dark-blue")  # You can change this to "green", "dark-blue" etc.
