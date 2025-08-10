@@ -1,20 +1,30 @@
 import shutil
+import time
 import subprocess
 import tempfile
+from pycaw.pycaw import AudioUtilities
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium import webdriver
 import customtkinter as ctk
 from tkinter import filedialog
 from tkinter import messagebox
 import json
 import os
-from crackinstall import crack_game
-from crackinstall import extract
-from crackinstall import download_file
 import requests
 import re
-import patoolib
+import threading
 
 
 
+# === GLOBAL CONSTANTS === #
+PIXELDRAIN_THUMBNAIL_SUFFIX = "/thumbnail"
+CHUNK_SIZE = 1024 * 1024 * 8
+HEADERS = {"Connection": "keep-alive", "User-Agent": "Mozilla/5.0"}
+
+### HELPER FUNCTIONS ###
 
 # Function to save the file path to a data file
 def save_file_path(file_path):
@@ -76,10 +86,368 @@ def create_appid_file(file_path, appid):
 
     print(f"Created {new_file_name} with APPID {appid}")
 
+def stop_steam():
+    print("Forcing Steam to close...")
+    os.system("taskkill /F /IM steam.exe")  # Windows command to kill the Steam process
+
+def start_steam():
+        os.startfile(f"{file_path_var.get()}/DLLinjector.exe")
+
+def restart_steam():
+    stop_steam()
+    time.sleep(2)
+    start_steam()
+
+def process_browser_log_entry(entry):
+    response = json.loads(entry['message'])['message']
+    return response
+
+def setup_driver():
+    options = Options()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
+    options.add_argument("--headless=new")
+
+    prefs = {
+        "download.prompt_for_download": False,
+        "download.default_directory": "/dev/null",
+        "download_restrictions": 3
+    }
+    options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+    options.add_experimental_option("prefs", prefs)
+
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+def wait_and_mute_setup_tmp(timeout=10):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        sessions = AudioUtilities.GetAllSessions()
+        for session in sessions:
+            if session.Process and session.Process.name().lower() == "setup.tmp":
+                session.SimpleAudioVolume.SetMute(1, None)
+                return True
+        time.sleep(0.2)
+    return False
+
+
+
+def download_file(url, output_path, label, cookies=None):
+    global root  # Use the global root instance from your main app
+
+    response = requests.get(url, stream=True, headers=HEADERS, cookies=cookies or {})
+    total_size = int(response.headers.get("Content-Length", 0))
+    downloaded = 0
+    start_time = time.time()
+    last_update = 0  # last UI update time
+
+    progress_bar = root.progress_bar
+    progress_label = root.progress_label
+
+    progress_bar.pack()
+    progress_label.pack()
+    if response.status_code == 200:
+        with open(output_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+                    # Only update UI every 0.2s to avoid slowing download
+                    now = time.time()
+                    if now - last_update >= 1 or downloaded == total_size:
+                        elapsed = now - start_time
+                        speed = downloaded / elapsed if elapsed > 0 else 0
+                        percent = (downloaded / total_size) * 100 if total_size else 0
+
+                        progress_bar.set(percent / 100)  # CTkProgressBar expects 0–1 range
+                        progress_label.configure(
+                            text=f"{label}: {percent:.2f}% at {speed / 1024 / 1024:.2f} MB/s"
+                        )
+                        root.update_idletasks()
+                        last_update = now
+
+        progress_label.configure(text=f"Download of {label} complete.")
+        progress_bar.set(1.0)
+        root.update_idletasks()
+    else:
+        progress_label.configure(
+            text=f"Failed to download {label} (status {response.status_code})."
+        )
+        root.update_idletasks()
+
+
+
+
+
+def extract(rar_path, extract_path, password=None):
+    useroutput("Extracting...")
+    os.makedirs(extract_path, exist_ok=True)
+
+    command = [
+        r"C:\Program Files\WinRAR\UnRAR.exe",  # Use UnRAR.exe, not WinRAR.exe
+        "x",  # eXtract files with full path
+        "-y",  # Assume Yes on all prompts
+        f"-p{password}",  # 👈 Supply password here; blank ("") if none
+        rar_path,
+        extract_path
+    ]
+
+    print(f"🛠️ Running: {' '.join(command)}")
+
+    try:
+        subprocess.run(command, check=True, timeout=60)
+        useroutput("✅ Extraction successful.")
+    except subprocess.CalledProcessError as e:
+        useroutput(f"❌ Extraction failed: {e}")
+    except subprocess.TimeoutExpired:
+        useroutput("❌ Extraction timed out.")
+
+def install_game(game_dir):
+    useroutput("Setting up game, user input required")
+    messagebox.showerror("User input required", "Please finish setting up the game manually")
+    setup_path = os.path.join(game_dir, "extract", "setup.exe")
+    proc = subprocess.Popen([setup_path, "/norestart", "/sp-", "/suppressmsgboxes", "/nocancel"])
+    wait_and_mute_setup_tmp(timeout=15)
+    proc.wait()
+
+def move_game(game_dir, game_sanitized):
+    gamelocation = os.path.join(game_dir, "extract")
+    dirs = os.listdir(gamelocation)
+
+    # List of filenames to skip (whitespace-insensitive)
+    skip_names = [
+        "Read_Me_Instructions.txt",
+        "STEAMRIP»FreePre-installedSteamGames.url",
+        "_CommonRedist"
+    ]
+    # Normalize skip_names: remove all spaces
+    skip_names = [name.replace(" ", "") for name in skip_names]
+
+    # Filter dirs by removing anything that matches skip_names ignoring spaces
+    dirs = [d for d in dirs if d.replace(" ", "") not in skip_names]
+
+    # Move the first remaining directory
+    if dirs:
+        destination = os.path.join(r"C:\Games", dirs[0])
+
+        # If destination already exists, remove it
+        if os.path.exists(destination):
+            shutil.rmtree(destination)
+
+        shutil.move(os.path.join(gamelocation, dirs[0]), destination)
+
+def install_fix(game_dir, game_sanitized):
+    output_rar = rf"{game_dir}\{game_sanitized}_Fix_Repair_Steam_V2_Generic.rar"
+    extract(output_rar, os.path.join(r"C:\Games", game_sanitized), password="online-fix.me")
+
+def modify_fake_appid(file_path, new_fake_appid):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    with open(file_path, 'w', encoding='utf-8') as f:
+        for line in lines:
+            if line.strip().startswith("FakeAppId="):
+                f.write(f"FakeAppId={new_fake_appid}\n")
+            else:
+                f.write(line)
+
+def find_onlinefix_files(root_dir):
+    matches = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        if "OnlineFix.ini" in filenames:
+            matches.append(os.path.join(dirpath, "OnlineFix.ini"))
+    return matches
+
+def extract_direct_link_from_page(driver, host):
+    if host == "FuckingFast":
+        html = driver.page_source
+        match = re.search(r'window\.open\(["\'](https://fuckingfast\.co/dl/[^\s"\']+)["\']\)', html)
+        return match.group(1) if match else None
+    if host == "PixelDrain":
+        meta_tag = driver.find_element(By.CSS_SELECTOR, 'meta[property="og:image"]')
+        return meta_tag.get_attribute("content").replace(PIXELDRAIN_THUMBNAIL_SUFFIX, "")
+    if host == "BuzzHeavier":
+        for _ in range(3):
+            driver.find_element(By.XPATH, ".//*[contains(text(), 'Download')]").click()
+            time.sleep(1)
+        browser_log = driver.get_log('performance')
+        events = [process_browser_log_entry(entry) for entry in browser_log]
+        events = [event for event in events if event.get("method") == "Network.responseReceived"]
+        for event in events:
+            url = event.get("params", {}).get("response", {}).get("url", "")
+            if "flashbang.sh" in url:
+                return url
+        return None
+
+def useroutput(text):
+    root.progress_label.configure(text=text)
+    print(text)
+
+# === MAIN FUNCTIONS === #
+
+def crack_function():
+    game = game_name_var.get()
+    if game:
+        temp = tempfile.gettempdir()
+        game_sanitized = re.sub(r'[<>:"/\\|?*]', '', game)
+        rar_name = game.replace(" ", "_") + ".rar"
+        game_dir = os.path.join(temp, "gamefiles", game_sanitized)
+        os.makedirs(game_dir, exist_ok=True)
+        useroutput("Setting up driver")
+        driver = setup_driver()
+
+        try:
+            # === FitGirl === #
+            try:
+                useroutput("Searching for Fitgirl repack...")
+                driver.get(f"https://fitgirl-repacks.site/?s={game.replace(' ', '+')}")
+                time.sleep(1)
+                result = driver.find_elements(By.CLASS_NAME, "category-lossless-repack")[0].find_element(By.XPATH, "header/h1/a")
+
+                if messagebox.askyesno("User Input", f"Is this your game?: '{result.text}'"):
+                    result.click()
+                    useroutput("Finding hoster")
+                else:
+                    raise RuntimeError("User declined FitGirl match")
+                time.sleep(1)
+                host = "null"
+                try:
+                    hostlink = driver.find_element(By.XPATH, ".//*[contains(text(), 'Filehoster: FuckingFast')]").get_attribute('href')
+                    driver.get(hostlink); host = "FuckingFast"
+                except:
+                    try:
+                        hostlink = driver.find_element(By.XPATH, ".//*[contains(text(), 'Filehoster: PixelDrain')]").get_attribute('href')
+                        driver.get(hostlink); host = "PixelDrain"
+                    except:
+                        pass
+                if host == "null":
+                    raise RuntimeError("No valid FitGirl hoster. Checking SteamRip")
+                else:
+                    useroutput(f"Using {host} file hoster")
+                time.sleep(2)
+                if "paste" in hostlink:
+                    useroutput("Multipart download found")
+                    if host == "FuckingFast":
+                        links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'fitgirl-repacks.site')]")
+                    else:
+                        links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'pixeldrain')]")
+                    time.sleep(1)
+                    urls = [l.get_attribute("href") for l in links]
+                    for idx, url in enumerate(urls):
+                        driver.get(url)
+                        output_path = os.path.join(game_dir, f"{game_sanitized}.part{str(idx+1).zfill(3)}.rar")
+                        download_file(extract_direct_link_from_page(driver, host), output_path, f"Part {idx+1}/{len(urls)}")
+                    extract(os.path.join(game_dir, f"{game_sanitized}.part001.rar"), os.path.join(game_dir, "extract"))
+                else:
+                    useroutput("One part download found")
+                    output_path = os.path.join(game_dir, rar_name)
+                    download_file(extract_direct_link_from_page(driver, host), output_path, "FitGirl")
+                    extract(output_path, os.path.join(game_dir, "extract"))
+                install_game(game_dir)
+                useroutput("✅ FitGirl install complete.")
+            except Exception as e:
+                print(f"FitGirl failed: {e}")
+
+                # === SteamRip === #
+                try:
+                    useroutput("Searching for SteamRip")
+                    driver.get(f"https://steamrip.com/?s={game.replace(' ', '+')}")
+                    time.sleep(1)
+                    result = driver.find_elements(By.CLASS_NAME, "tie-standard")[0]
+
+                    if not messagebox.askyesno("User Input", f"Is this your game?: '{result.find_element(By.XPATH, './div/a').text}'"):
+                        raise RuntimeError("User declined SteamRip match.")
+                    result.click()
+                    time.sleep(3)
+                    host = "null"
+                    useroutput("Finding hoster")
+                    try:
+                        driver.get(driver.find_element(By.XPATH, "//a[contains(@href,'pixeldrain.com')]").get_attribute('href'))
+                        host = "PixelDrain"
+                    except:
+                        try:
+                            driver.get(driver.find_element(By.XPATH, "//a[contains(@href,'buzzheavier.com')]").get_attribute('href'))
+                            host = "BuzzHeavier"
+                        except:
+                            pass
+                    if host == "null":
+                        raise RuntimeError("No valid SteamRip hoster.")
+                    else:
+                        useroutput(f"Using {host} hoster")
+                    output_path = os.path.join(game_dir, rar_name)
+                    download_file(extract_direct_link_from_page(driver, host), output_path, "SteamRip")
+                    extract(output_path, os.path.join(game_dir, "extract"))
+                    move_game(game_dir, game_sanitized)
+                    useroutput("✅ SteamRip install complete.")
+                except Exception as e:
+                    print(f"SteamRip failed: {e}")
+                    return
+
+            # === OnlineFix === #
+
+            if messagebox.askyesno("User Input", f"Do you want to fix this game for online?"):
+                useroutput("Fixing game...")
+                try:
+                    driver.get(f"https://online-fix.me/index.php?do=search&subaction=search&story={game.translate(str.maketrans('', '', r',.:;\'\"[]\\|'))}")
+                    time.sleep(3)
+                    driver.find_element(By.NAME, "login_name").send_keys("Anden_5335")
+                    driver.find_element(By.NAME, "login_password").send_keys("01q9g29dc12")
+                    driver.execute_script("dologin();")
+                    time.sleep(2)
+                    gameOptions = driver.find_elements(By.CLASS_NAME, "news-search")
+                    game_links = [i.find_element(By.CLASS_NAME, "big-link").get_attribute("href") for i in gameOptions]
+                    for x, result in enumerate(game_links[:3]):
+                        if messagebox.askyesno("User Input",f"Is {result} your game?"):
+                            driver.get(result)
+                            break
+                    time.sleep(5)
+                    try:
+                        link = driver.find_element(By.XPATH, f"//a[contains(@href,'https://uploads.online-fix.me:2053/uploads/')]")
+                        url = link.get_attribute("href")
+                    except:
+                        link = driver.find_element(By.XPATH, f"//a[contains(@href,'https://hosters.online-fix.me:2053/')]")
+                        url = link.get_attribute("href")
+                    useroutput("Fix found")
+                    driver.execute_script("arguments[0].click();", link)
+                    time.sleep(2)
+                    driver.get(url)
+                    time.sleep(2)
+                    driver.find_element(By.XPATH, "//a[contains(@href,'Fix%20Repair/')]").click()
+                    time.sleep(1)
+                    fixrepairurl = driver.find_element(By.XPATH, "/html/body/pre/a[2]").get_attribute("href")
+                    cookies_dict = {c['name']: c['value'] for c in driver.get_cookies()}
+                    cookies = {
+                        "online_fix_auth": cookies_dict.get('online_fix_auth', ''),
+                        "cf_clearance": cookies_dict.get('cf_clearance', '')
+                    }
+                    output_rar = rf"{game_dir}\{game_sanitized}_Fix_Repair_Steam_V2_Generic.rar"
+                    download_file(fixrepairurl, output_rar, "OnlineFix", cookies)
+                    install_fix(game_dir, game_sanitized)
+                    for file_path in find_onlinefix_files(os.path.join(r"C:\Games", game_sanitized)):
+                        modify_fake_appid(file_path, 105600)
+                    print("✅ OnlineFix applied.")
+                except Exception as e:
+                    print(e)
+                    useroutput("No online fix found")
+
+
+        finally:
+            driver.quit()
+            shutil.rmtree(game_dir)
+
+            useroutput("🎯 All Done!")
+    else:
+        messagebox.showerror("Error","Please enter the game name.")
+
+# Function to browse and select a file path
+def browse_file():
+    file_path = filedialog.askdirectory()
+    if file_path:
+        file_path_var.set(file_path)
 
 # Function linked to "Go" button
 def go_function():
-    file_path = f"{file_path_var.get()}\\AppList"
     game_name = game_name_var.get()
 
     if file_path and game_name:
@@ -96,40 +464,17 @@ def go_function():
             # Create a new file with the APPID
             create_appid_file(file_path, appid)
 
-            # Step 1: Force end the Steam process
-            print("Forcing Steam to close...")
-            os.system("taskkill /F /IM steam.exe")  # Windows command to kill the Steam process
+            restart_steam()
 
-            # Step 2: Run the DeleteSteamAppCache.exe program
-            parent_dir = os.path.dirname(file_path)  # Get the parent directory of the AppList folder
-            exe_path = os.path.join(parent_dir, "DeleteSteamAppCache.exe")  # Full path to the exe file
+            messagebox.showinfo("Game patched", f"Game {game_name}:{appid} patched!")
 
-            if os.path.exists(exe_path):
-                print(f"Running {exe_path}...")
-                subprocess.run([exe_path])  # Run the .exe file
-            os.startfile(f"{file_path_var.get()}/DLLinjector.exe")
+
         else:
-            print(f"Game '{game_name}' not found on Steam.")
+            messagebox.showerror("No game found", "No game found")
+
     else:
         print("Please enter the game name and select a file path.")
-
-# Function to browse and select a file path
-def browse_file():
-    file_path = filedialog.askdirectory()
-    if file_path:
-        file_path_var.set(file_path)
-
-def on_closing():
-    if messagebox.askokcancel("Quit", "Do you want to quit?"):
-        root.destroy()
-
-
-
-def crack_function():
-    game_name = game_name_var.get()
-    if game_name:
-        crack_game(game_name)
-
+        messagebox.showerror("Error", "Please enter the game name and select a file path.")
 
 def remove_function():
     file_path = f"{file_path_var.get()}\\AppList"
@@ -154,25 +499,48 @@ def remove_function():
 
         if files_removed == 0:
             print("No matching file found.")
+            messagebox.showerror("Game not found", "Game not found")
         else:
             print(f"Total files removed: {files_removed}")
+            messagebox.showinfo("Game removed", f"Game {game_name}:{appid} removed!")
+
+        restart_steam()
 
     except Exception as e:
         print(f"Error: {e}")
 
 def reinstall_function():
-    download_file(r"https://github.com/andyscoming/CrackerUnlimited/blob/main/NormalMode.rar","NormalMode.rar", "GreenLuma")
-    rar_path = "NormalMode.rar"
-    extract_path = file_path_var.get()
-    extract(rar_path, extract_path, "crack")
+    stop_steam()
+    try:
+        download_file(r"https://github.com/andyscoming/CrackerUnlimited/raw/refs/heads/main/NormalMode.rar","NormalMode.rar", "GreenLuma")
+        rar_path = "NormalMode.rar"
+        extract_path = file_path_var.get()
+        extract(rar_path, extract_path, "crack")
+        messagebox.showinfo("Success", "GreenLuma successfully reinstalled and updated!")
+    except Exception as e:
+        print(e)
+        messagebox.showerror("Failed to reinstall","Failed to reinstall")
+
+    start_steam()
+
+def on_closing():
+    if messagebox.askokcancel("Quit", "Do you want to quit?"):
+        root.destroy()
+
+
+def start_crack_thread():
+    threading.Thread(target=crack_function, daemon=True).start()
+
+def start_reinstall_thread():
+    threading.Thread(target=reinstall_function(), daemon=True).start()
 
 # Create the main application window
 ctk.set_appearance_mode("dark")  # Dark mode for a modern look
-ctk.set_default_color_theme("blue")  # You can change this to "green", "dark-blue" etc.
+ctk.set_default_color_theme("dark-blue")  # You can change this to "green", "dark-blue" etc.
 
 root = ctk.CTk()
 root.title("Game Setup")
-root.geometry("400x540")
+root.geometry("400x560")
 
 # Define tkinter variables
 file_path_var = ctk.StringVar(value=load_file_path())  # Pre-fill with saved or default path
@@ -184,6 +552,9 @@ file_label.pack(pady=10)
 
 file_path_entry = ctk.CTkEntry(root, textvariable=file_path_var, width=250, height=30, corner_radius=10)
 file_path_entry.pack(pady=10)
+
+file_path = f"{file_path_var.get()}\\AppList"
+
 
 browse_button = ctk.CTkButton(root, text="Browse", command=browse_file, width=100, height=40, corner_radius=10)
 browse_button.pack(pady=10)
@@ -197,14 +568,22 @@ game_name_entry.pack(pady=10)
 go_button = ctk.CTkButton(root, text="Patch", command=go_function, width=100, height=40, corner_radius=10)
 go_button.pack(pady=(20,10))
 
-go_button = ctk.CTkButton(root, text="Install Crack", command=crack_function, width=100, height=40, corner_radius=10)
-go_button.pack(pady=(0,10))
+install_button = ctk.CTkButton(root, text="Install Crack", command=start_crack_thread, width=100, height=40, corner_radius=10)
+install_button.pack(pady=(0,10))
 
-go_button = ctk.CTkButton(root, text="Remove Patch", command=remove_function, width=100, height=40, corner_radius=10)
-go_button.pack(pady=(0,10))
+remove_button = ctk.CTkButton(root, text="Remove Patch", command=remove_function, width=100, height=40, corner_radius=10)
+remove_button.pack(pady=(0,10))
 
-go_button = ctk.CTkButton(root, text="Reinstall GL", command=reinstall_function, width=100, height=40, corner_radius=10)
-go_button.pack(pady=(0,20))
+reinstall_button = ctk.CTkButton(root, text="Reinstall GL", command=start_reinstall_thread, width=100, height=40, corner_radius=10)
+reinstall_button.pack(pady=(0,10))
+
+root.progress_label = ctk.CTkLabel(root, text="")
+root.progress_label.pack(pady=(0,10))
+
+root.progress_bar = ctk.CTkProgressBar(root)
+root.progress_bar.pack(pady=(0,20))
+root.progress_bar.set(0)
+root.progress_bar.pack_forget()
 
 # Run the GUI event loop
 root.protocol("WM_DELETE_WINDOW", on_closing)
