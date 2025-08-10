@@ -343,7 +343,7 @@ def extract_direct_link_from_page(driver, host):
     if host == "BuzzHeavier":
         for _ in range(3):
             driver.find_element(By.XPATH, ".//*[contains(text(), 'Download')]").click()
-            time.sleep(3)
+            time.sleep(5)
         browser_log = driver.get_log('performance')
         events = [process_browser_log_entry(entry) for entry in browser_log]
         events = [event for event in events if event.get("method") == "Network.responseReceived"]
@@ -383,7 +383,7 @@ def crack_function():
                     useroutput("Finding hoster")
                 else:
                     raise RuntimeError("User declined FitGirl match")
-                time.sleep(3)
+                time.sleep(5)
                 host = "null"
                 try:
                     hostlink = driver.find_element(By.XPATH, ".//*[contains(text(), 'Filehoster: FuckingFast')]").get_attribute('href')
@@ -398,14 +398,14 @@ def crack_function():
                     raise RuntimeError("No valid FitGirl hoster. Checking SteamRip")
                 else:
                     useroutput(f"Using {host} file hoster")
-                time.sleep(3)
+                time.sleep(5)
                 if "paste" in hostlink:
                     useroutput("Multipart download found")
                     if host == "FuckingFast":
                         links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'fitgirl-repacks.site')]")
                     else:
                         links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'pixeldrain')]")
-                    time.sleep(3)
+                    time.sleep(5)
                     urls = [l.get_attribute("href") for l in links]
                     for idx, url in enumerate(urls):
                         driver.get(url)
@@ -426,13 +426,13 @@ def crack_function():
                 try:
                     useroutput("Searching for SteamRip")
                     driver.get(f"https://steamrip.com/?s={game.replace(' ', '+')}")
-                    time.sleep(3)
+                    time.sleep(5)
                     result = driver.find_elements(By.CLASS_NAME, "tie-standard")[0]
 
                     if not messagebox.askyesno("User Input", f"Is this your game?: '{result.find_element(By.XPATH, './div/a').text}'"):
                         raise RuntimeError("User declined SteamRip match.")
                     result.click()
-                    time.sleep(3)
+                    time.sleep(5)
                     host = "null"
                     useroutput("Finding hoster")
                     try:
@@ -463,11 +463,11 @@ def crack_function():
                 useroutput("Fixing game...")
                 try:
                     driver.get(f"https://online-fix.me/index.php?do=search&subaction=search&story={game.translate(str.maketrans('', '', r',.:;\'\"[]\\|'))}")
-                    time.sleep(3)
+                    time.sleep(5)
                     driver.find_element(By.NAME, "login_name").send_keys("Anden_5335")
                     driver.find_element(By.NAME, "login_password").send_keys("01q9g29dc12")
                     driver.execute_script("dologin();")
-                    time.sleep(3)
+                    time.sleep(5)
                     gameOptions = driver.find_elements(By.CLASS_NAME, "news-search")
                     game_links = [i.find_element(By.CLASS_NAME, "big-link").get_attribute("href") for i in gameOptions]
                     for x, result in enumerate(game_links[:3]):
@@ -483,11 +483,11 @@ def crack_function():
                         url = link.get_attribute("href")
                     useroutput("Fix found")
                     driver.execute_script("arguments[0].click();", link)
-                    time.sleep(3)
+                    time.sleep(5)
                     driver.get(url)
-                    time.sleep(3)
+                    time.sleep(5)
                     driver.find_element(By.XPATH, "//a[contains(@href,'Fix%20Repair/')]").click()
-                    time.sleep(3)
+                    time.sleep(5)
                     fixrepairurl = driver.find_element(By.XPATH, "/html/body/pre/a[2]").get_attribute("href")
                     cookies_dict = {c['name']: c['value'] for c in driver.get_cookies()}
                     cookies = {
