@@ -69,24 +69,21 @@ def download_update():
     print("Downloading update...")
     r = requests.get(LATEST_EXE_URL, stream=True)
     r.raise_for_status()
-
     with open(temp_path, "wb") as f:
         shutil.copyfileobj(r.raw, f)
-
     print("Update downloaded:", temp_path)
     return temp_path
 
 def install_update(new_exe_path):
     print("Installing update...")
-    # Path to precompiled updater.exe (bundled with your app or downloaded)
-    updater_exe = os.path.join(os.path.dirname(sys.argv[0]), "updater.exe")
-
+    updater_exe = ensure_updater()  # Make sure updater exists
     subprocess.Popen([
         updater_exe,
         sys.argv[0],       # Current exe path
         new_exe_path       # Downloaded update path
     ])
     sys.exit()
+
 
 
 ### HELPER FUNCTIONS ###
@@ -612,7 +609,7 @@ def start_reinstall_thread():
 
 if __name__ == "__main__":
     latest = get_latest_version()
-    current = "1.0.4"
+    current = "1.0.5"
 
     if latest and latest != current:
         print(f"New version {latest} found! Updating...")
