@@ -333,6 +333,7 @@ def find_onlinefix_files(root_dir):
     return matches
 
 def extract_direct_link_from_page(driver, host):
+    time.sleep(3)
     if host == "FuckingFast":
         html = driver.page_source
         match = re.search(r'window\.open\(["\'](https://fuckingfast\.co/dl/[^\s"\']+)["\']\)', html)
