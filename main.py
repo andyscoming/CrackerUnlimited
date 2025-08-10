@@ -15,81 +15,14 @@ import json
 import os
 import requests
 import re
-import ctypes
-import sys
 import threading
 
-def run_as_admin():
-    # Check if script is already running as admin
-    try:
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        is_admin = False
 
-    if not is_admin:
-        # Relaunch with admin rights
-        params = " ".join([f'"{arg}"' for arg in sys.argv])
-        try:
-            ctypes.windll.shell32.ShellExecuteW(
-                None, "runas", sys.executable, params, None, 1
-            )
-        except Exception as e:
-            print(f"Elevation failed: {e}")
-        sys.exit()  # Exit original non-admin instance
-
-run_as_admin()
 
 # === GLOBAL CONSTANTS === #
 PIXELDRAIN_THUMBNAIL_SUFFIX = "/thumbnail"
 CHUNK_SIZE = 1024 * 1024 * 8
 HEADERS = {"Connection": "keep-alive", "User-Agent": "Mozilla/5.0"}
-
-LATEST_EXE_URL = "https://github.com/andyscoming/CrackerUnlimited/releases/latest/download/crackerunlimited.exe"
-VERSION_URL = "https://raw.githubusercontent.com/andyscoming/CrackerUnlimited/refs/heads/main/version.txt"
-
-# Current app version
-CURRENT_VERSION = "1.0.2"
-### UPDATE FUNCTION ###
-
-
-def get_latest_version():
-    try:
-        r = requests.get(VERSION_URL, timeout=5)
-        r.raise_for_status()
-        return r.text.strip()
-    except Exception as e:
-        print("Version check failed:", e)
-        return None
-
-def download_update():
-    temp_path = os.path.join(tempfile.gettempdir(), "update.exe")
-    print("Downloading update...")
-    r = requests.get(LATEST_EXE_URL, stream=True)
-    r.raise_for_status()
-
-    with open(temp_path, "wb") as f:
-        shutil.copyfileobj(r.raw, f)
-
-    print("Update downloaded:", temp_path)
-    return temp_path
-
-def install_update(new_exe_path):
-    print("Installing update...")
-    # Start new process that waits for this one to exit, then replaces and restarts
-    updater_code = f"""
-import os, time, shutil, sys
-time.sleep(1)
-shutil.copy2(r"{new_exe_path}", r"{sys.argv[0]}")
-os.execv(r"{sys.argv[0]}", sys.argv)
-"""
-    updater_file = os.path.join(tempfile.gettempdir(), "updater.py")
-    with open(updater_file, "w", encoding="utf-8") as f:
-        f.write(updater_code)
-
-    subprocess.Popen([sys.executable, updater_file])
-    sys.exit()
-
-
 
 ### HELPER FUNCTIONS ###
 
@@ -198,6 +131,8 @@ def wait_and_mute_setup_tmp(timeout=10):
         time.sleep(0.2)
     return False
 
+
+
 def download_file(url, output_path, label, cookies=None):
     global root  # Use the global root instance from your main app
 
@@ -241,6 +176,10 @@ def download_file(url, output_path, label, cookies=None):
             text=f"Failed to download {label} (status {response.status_code})."
         )
         root.update_idletasks()
+
+
+
+
 
 def extract(rar_path, extract_path, password=None):
     useroutput("Extracting...")
@@ -526,6 +465,7 @@ def go_function():
             create_appid_file(file_path, appid)
 
             restart_steam()
+
             messagebox.showinfo("Game patched", f"Game {game_name}:{appid} patched!")
 
 
@@ -594,69 +534,57 @@ def start_crack_thread():
 def start_reinstall_thread():
     threading.Thread(target=reinstall_function(), daemon=True).start()
 
+# Create the main application window
+ctk.set_appearance_mode("dark")  # Dark mode for a modern look
+ctk.set_default_color_theme("dark-blue")  # You can change this to "green", "dark-blue" etc.
 
-if __name__ == "__main__":
-    latest_version = get_latest_version()
-    if latest_version and latest_version != CURRENT_VERSION:
-        print(f"New version {latest_version} found! Updating...")
-        new_exe = download_update()
-        install_update(new_exe)
-    else:
-        print("No update needed. Running normally.")
+root = ctk.CTk()
+root.title("Game Setup")
+root.geometry("400x560")
 
-    # ---- MAIN APP CODE ----
-    print(f"App v{CURRENT_VERSION} running.")
-    # Create the main application window
-    ctk.set_appearance_mode("dark")  # Dark mode for a modern look
-    ctk.set_default_color_theme("dark-blue")  # You can change this to "green", "dark-blue" etc.
+# Define tkinter variables
+file_path_var = ctk.StringVar(value=load_file_path())  # Pre-fill with saved or default path
+game_name_var = ctk.StringVar()
 
-    root = ctk.CTk()
-    root.title("Game Setup")
-    root.geometry("400x560")
+# Create GUI elements with rounded corners
+file_label = ctk.CTkLabel(root, text="Select Steam Path:")
+file_label.pack(pady=10)
 
-    # Define tkinter variables
-    file_path_var = ctk.StringVar(value=load_file_path())  # Pre-fill with saved or default path
-    game_name_var = ctk.StringVar()
+file_path_entry = ctk.CTkEntry(root, textvariable=file_path_var, width=250, height=30, corner_radius=10)
+file_path_entry.pack(pady=10)
 
-    # Create GUI elements with rounded corners
-    file_label = ctk.CTkLabel(root, text="Select Steam Path:")
-    file_label.pack(pady=10)
-
-    file_path_entry = ctk.CTkEntry(root, textvariable=file_path_var, width=250, height=30, corner_radius=10)
-    file_path_entry.pack(pady=10)
-
-    file_path = f"{file_path_var.get()}\\AppList"
+file_path = f"{file_path_var.get()}\\AppList"
 
 
-    browse_button = ctk.CTkButton(root, text="Browse", command=browse_file, width=100, height=40, corner_radius=10)
-    browse_button.pack(pady=10)
+browse_button = ctk.CTkButton(root, text="Browse", command=browse_file, width=100, height=40, corner_radius=10)
+browse_button.pack(pady=10)
 
-    game_name_label = ctk.CTkLabel(root, text="Game Name:")
-    game_name_label.pack(pady=10)
+game_name_label = ctk.CTkLabel(root, text="Game Name:")
+game_name_label.pack(pady=10)
 
-    game_name_entry = ctk.CTkEntry(root, textvariable=game_name_var, width=250, height=30, corner_radius=10)
-    game_name_entry.pack(pady=10)
+game_name_entry = ctk.CTkEntry(root, textvariable=game_name_var, width=250, height=30, corner_radius=10)
+game_name_entry.pack(pady=10)
 
-    go_button = ctk.CTkButton(root, text="Patch", command=go_function, width=100, height=40, corner_radius=10)
-    go_button.pack(pady=(20,10))
+go_button = ctk.CTkButton(root, text="Patch", command=go_function, width=100, height=40, corner_radius=10)
+go_button.pack(pady=(20,10))
 
-    install_button = ctk.CTkButton(root, text="Install Crack", command=start_crack_thread, width=100, height=40, corner_radius=10)
-    install_button.pack(pady=(0,10))
+install_button = ctk.CTkButton(root, text="Install Crack", command=start_crack_thread, width=100, height=40, corner_radius=10)
+install_button.pack(pady=(0,10))
 
-    remove_button = ctk.CTkButton(root, text="Remove Patch", command=remove_function, width=100, height=40, corner_radius=10)
-    remove_button.pack(pady=(0,10))
+remove_button = ctk.CTkButton(root, text="Remove Patch", command=remove_function, width=100, height=40, corner_radius=10)
+remove_button.pack(pady=(0,10))
 
-    reinstall_button = ctk.CTkButton(root, text="Reinstall GL", command=start_reinstall_thread, width=100, height=40, corner_radius=10)
-    reinstall_button.pack(pady=(0,10))
+reinstall_button = ctk.CTkButton(root, text="Reinstall GL", command=start_reinstall_thread, width=100, height=40, corner_radius=10)
+reinstall_button.pack(pady=(0,10))
 
-    root.progress_label = ctk.CTkLabel(root, text="")
-    root.progress_label.pack(pady=(0,10))
+root.progress_label = ctk.CTkLabel(root, text="")
+root.progress_label.pack(pady=(0,10))
 
-    root.progress_bar = ctk.CTkProgressBar(root)
-    root.progress_bar.pack(pady=(0,20))
-    root.progress_bar.set(0)
-    root.progress_bar.pack_forget()
+root.progress_bar = ctk.CTkProgressBar(root)
+root.progress_bar.pack(pady=(0,20))
+root.progress_bar.set(0)
+root.progress_bar.pack_forget()
 
-    # Run the GUI event loop
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-    root.mainloop()
+# Run the GUI event loop
+root.protocol("WM_DELETE_WINDOW", on_closing)
+root.mainloop()
