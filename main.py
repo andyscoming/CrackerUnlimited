@@ -6,6 +6,7 @@ from pycaw.pycaw import AudioUtilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium import webdriver
 import customtkinter as ctk
@@ -18,6 +19,9 @@ import re
 import ctypes
 import sys
 import threading
+
+from win32comext.adsi.demos.search import options
+
 
 def run_as_admin():
     # Check if script is already running as admin
@@ -187,7 +191,7 @@ def setup_driver():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36")
-    options.add_argument("--headless=new")
+    #options.add_argument("--headless=new")
 
     prefs = {
         "download.prompt_for_download": False,
@@ -342,17 +346,122 @@ def extract_direct_link_from_page(driver, host):
         meta_tag = driver.find_element(By.CSS_SELECTOR, 'meta[property="og:image"]')
         return meta_tag.get_attribute("content").replace(PIXELDRAIN_THUMBNAIL_SUFFIX, "")
     if host == "BuzzHeavier":
-        for _ in range(3):
-            driver.find_element(By.XPATH, ".//*[contains(text(), 'Download')]").click()
-            time.sleep(5)
-        browser_log = driver.get_log('performance')
-        events = [process_browser_log_entry(entry) for entry in browser_log]
-        events = [event for event in events if event.get("method") == "Network.responseReceived"]
-        for event in events:
-            url = event.get("params", {}).get("response", {}).get("url", "")
-            if "flashbang.sh" in url:
-                return url
+        for i in range(10):
+            for _ in range(3):
+                for x, z in enumerate(range(100)):
+                    if x == 100: raise Exception("Browser Timeout")
+                    try:
+                        driver.find_element(By.XPATH, ".//*[contains(text(), 'Download')]").click()
+                        break
+                    except NoSuchElementException:pass
+                time.sleep(.1)
+            browser_log = driver.get_log('performance')
+            events = [process_browser_log_entry(entry) for entry in browser_log]
+            events = [event for event in events if event.get("method") == "Network.responseReceived"]
+            for event in events:
+                url = event.get("params", {}).get("response", {}).get("url", "")
+                if "flashbang.sh" in url:
+                    return url
         return None
+    if host == "GoFile":
+        for i in range(10):
+            # Click the correct download button
+            for x, z in enumerate(range(100)):
+                if x == 100:
+                    raise Exception("Browser Timeout")
+                try:
+                    link = driver.find_element(
+                        By.CSS_SELECTOR,
+                        ".item_download.border.border-gray-600.text-white"
+                    )
+                    driver.execute_script("arguments[0].click();", link)
+                    break
+                except:
+                    pass
+                time.sleep(.1)
+
+            time.sleep(1)
+
+            browser_log = driver.get_log('performance')
+            events = [process_browser_log_entry(entry) for entry in browser_log]
+
+            file_url = None
+            account_token = None
+
+            # Step 1 — find file URL from response
+            for event in events:
+                if event.get("method") == "Network.responseReceived":
+                    url = event.get("params", {}).get("response", {}).get("url", "")
+                    if "gofile.io/download/web/" in url:
+                        file_url = url
+                        break
+
+            # Step 2 — search for cookie in both possible event types
+            if file_url:
+                for event in events:
+                    method = event.get("method", "")
+                    if method in ["Network.requestWillBeSent", "Network.requestWillBeSentExtraInfo"]:
+                        req = event.get("params", {}).get("request", {}) if "request" in event.get("params", {}) else {}
+                        req_url = req.get("url", "") if req else ""
+                        # If no URL in this event, check against previously found file_url
+                        if not req_url and "headers" in event.get("params", {}):
+                            req_url = file_url  # fallback
+
+                        if "gofile.io/download/web/" in req_url:
+                            headers = event.get("params", {}).get("headers", {}) or req.get("headers", {})
+                            cookie_header = headers.get("Cookie", "")
+                            if "accountToken=" in cookie_header:
+                                account_token = cookie_header.split("accountToken=")[-1].split(";")[0]
+                                break
+
+                account_token = {"accountToken": account_token}
+
+                print("Direct File URL:", file_url)
+                print("Account Token:", account_token if account_token else "NOT FOUND")
+                return file_url, account_token
+
+        return None, None
+
+def choose_hoster_figirl():
+    def set_choice(choice):
+        nonlocal selected
+        selected = choice
+        win.destroy()
+
+    selected = None
+    win = ctk.CTkToplevel(root)
+    win.title("Select Preferred Hoster")
+    win.geometry("300x200")
+    win.grab_set()
+
+    ctk.CTkLabel(win, text="Select preferred hoster", wraplength=250).pack(pady=15)
+
+    ctk.CTkButton(win, text="FuckingFast", command=lambda: set_choice("FuckingFast")).pack(pady=5)
+    ctk.CTkButton(win, text="PixelDrain", command=lambda: set_choice("PixelDrain")).pack(pady=5)
+
+    root.wait_window(win)
+    return selected
+
+def choose_hoster_steamrip():
+    def set_choice(choice):
+        nonlocal selected
+        selected = choice
+        win.destroy()
+
+    selected = None
+    win = ctk.CTkToplevel(root)
+    win.title("Select Preferred Hoster")
+    win.geometry("300x200")
+    win.grab_set()
+
+    ctk.CTkLabel(win, text="Select preferred hoster", wraplength=250).pack(pady=15)
+
+    ctk.CTkButton(win, text="Buzzheavier", command=lambda: set_choice("Buzzheavier")).pack(pady=5)
+    ctk.CTkButton(win, text="GoFile", command=lambda: set_choice("GoFile")).pack(pady=5)
+    ctk.CTkButton(win, text="PixelDrain", command=lambda: set_choice("PixelDrain")).pack(pady=5)
+
+    root.wait_window(win)
+    return selected
 
 def useroutput(text):
     root.progress_label.configure(text=text)
@@ -370,53 +479,88 @@ def crack_function():
         os.makedirs(game_dir, exist_ok=True)
         useroutput("Setting up driver")
         driver = setup_driver()
-
+        cookies = ""
         try:
             # === FitGirl === #
             try:
                 useroutput("Searching for Fitgirl repack...")
                 driver.get(f"https://fitgirl-repacks.site/?s={game.replace(' ', '+')}")
-                time.sleep(2)
-                result = driver.find_elements(By.CLASS_NAME, "category-lossless-repack")[0].find_element(By.XPATH, "header/h1/a")
+                for x, i in enumerate(range(100)):
+                    if x == 100: raise Exception("Browser Timeout")
+                    try:
+                        result = driver.find_elements(By.CLASS_NAME, "category-lossless-repack")[0].find_element(By.XPATH, "header/h1/a")
+                        result_url = result.get_attribute('href')
+                        break
+                    except NoSuchElementException:pass
+                    time.sleep(.1)
+
 
                 if messagebox.askyesno("User Input", f"Is this your game?: '{result.text}'"):
                     result.click()
                     useroutput("Finding hoster")
                 else:
                     raise RuntimeError("User declined FitGirl match")
-                time.sleep(5)
+
                 host = "null"
-                try:
-                    hostlink = driver.find_element(By.XPATH, ".//*[contains(text(), 'Filehoster: FuckingFast')]").get_attribute('href')
-                    driver.get(hostlink); host = "FuckingFast"
-                except:
+
+                preferred_host = choose_hoster_figirl()
+                print(preferred_host)
+
+
+                for x,i in enumerate(range(10)):
+                    try:
+                        hostlink = driver.find_element(By.XPATH, f".//*[contains(text(), 'Filehoster: {preferred_host}')]").get_attribute('href')
+                        driver.get(hostlink); host = preferred_host
+                        break
+                    except NoSuchElementException:pass
+                    try:
+                        hostlink = driver.find_element(By.XPATH, ".//*[contains(text(), 'Filehoster: FuckingFast')]").get_attribute('href')
+                        driver.get(hostlink); host = "FuckingFast"
+                        break
+                    except NoSuchElementException:pass
                     try:
                         hostlink = driver.find_element(By.XPATH, ".//*[contains(text(), 'Filehoster: PixelDrain')]").get_attribute('href')
                         driver.get(hostlink); host = "PixelDrain"
-                    except:
+                        break
+                    except NoSuchElementException:
                         pass
+                    time.sleep(.1)
                 if host == "null":
                     raise RuntimeError("No valid FitGirl hoster. Checking SteamRip")
                 else:
                     useroutput(f"Using {host} file hoster")
-                time.sleep(5)
                 if "paste" in hostlink:
                     useroutput("Multipart download found")
                     if host == "FuckingFast":
-                        links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'fitgirl-repacks.site')]")
+                        for x, i in enumerate(range(100)):
+                            if x == 100: raise Exception("Browser Timeout")
+                            try:
+                                links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'fitgirl-repacks.site')]")
+                                break
+                            except NoSuchElementException:pass
+                            time.sleep(.1)
                     else:
-                        links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'pixeldrain')]")
-                    time.sleep(5)
+                        for x, i in enumerate(range(100)):
+                            if x == 100: raise Exception("Browser Timeout")
+                            try:
+                                links = driver.find_element(By.ID, "downloadlinks").find_element(By.XPATH, "..").find_elements(By.XPATH, ".//a[contains(@href,'pixeldrain')]")
+                                break
+                            except NoSuchElementException:pass
+                            time.sleep(.1)
                     urls = [l.get_attribute("href") for l in links]
                     for idx, url in enumerate(urls):
                         driver.get(url)
                         output_path = os.path.join(game_dir, f"{game_sanitized}.part{str(idx+1).zfill(3)}.rar")
-                        download_file(extract_direct_link_from_page(driver, host), output_path, f"Part {idx+1}/{len(urls)}")
+
+
+                        download_url = extract_direct_link_from_page(driver, host)
+                        download_file(download_url, output_path, f"Part {idx+1}/{len(urls)}")
                     extract(os.path.join(game_dir, f"{game_sanitized}.part001.rar"), os.path.join(game_dir, "extract"))
                 else:
                     useroutput("One part download found")
                     output_path = os.path.join(game_dir, rar_name)
-                    download_file(extract_direct_link_from_page(driver, host), output_path, "FitGirl")
+                    download_url = extract_direct_link_from_page(driver, host)
+                    download_file(download_url, output_path, "FitGirl", cookies=cookies)
                     extract(output_path, os.path.join(game_dir, "extract"))
                 install_game(game_dir)
                 useroutput("✅ FitGirl install complete.")
@@ -427,68 +571,137 @@ def crack_function():
                 try:
                     useroutput("Searching for SteamRip")
                     driver.get(f"https://steamrip.com/?s={game.replace(' ', '+')}")
-                    time.sleep(5)
-                    result = driver.find_elements(By.CLASS_NAME, "tie-standard")[0]
+                    time.sleep(1)
 
-                    if not messagebox.askyesno("User Input", f"Is this your game?: '{result.find_element(By.XPATH, './div/a').text}'"):
+                    for x in range(100):
+                        try:
+                            result = driver.find_elements(By.CLASS_NAME, "tie-standard")[0]
+                            result_url = result.get_attribute('href')
+                            break
+                        except Exception as e:
+                            print(e)
+                        time.sleep(.1)
+                    else:
+                        raise Exception("Browser Timeout")
+
+                    if not messagebox.askyesno("User Input",
+                                               f"Is this your game?: '{result.find_element(By.XPATH, './div/a').text}'"):
                         raise RuntimeError("User declined SteamRip match.")
+
                     result.click()
-                    time.sleep(5)
+
+
                     host = "null"
                     useroutput("Finding hoster")
-                    try:
-                        driver.get(driver.find_element(By.XPATH, "//a[contains(@href,'pixeldrain.com')]").get_attribute('href'))
-                        host = "PixelDrain"
-                    except:
+
+                    preferred_host = choose_hoster_steamrip()
+
+                    # Try preferred first, then fallbacks
+                    for _ in range(100):
                         try:
-                            driver.get(driver.find_element(By.XPATH, "//a[contains(@href,'buzzheavier.com')]").get_attribute('href'))
-                            host = "BuzzHeavier"
-                        except:
+                            driver.get(driver.find_element(By.XPATH,
+                                                           f"//a[contains(@href,'{preferred_host.lower()}')]").get_attribute(
+                                'href'))
+                            host = preferred_host
+                            break
+                        except NoSuchElementException:
                             pass
+                        try:
+                            driver.get(driver.find_element(By.XPATH,
+                                                           "//a[contains(@href,'pixeldrain.com')]").get_attribute(
+                                'href'))
+                            host = "PixelDrain"
+                            break
+                        except NoSuchElementException:
+                            pass
+                        try:
+                            driver.get(
+                                driver.find_element(By.XPATH, "//a[contains(@href,'gofile.io')]").get_attribute(
+                                    'href'))
+                            host = "GoFile"
+                            break
+                        except NoSuchElementException:
+                            pass
+                        try:
+                            driver.get(driver.find_element(By.XPATH,
+                                                           "//a[contains(@href,'buzzheavier.com')]").get_attribute(
+                                'href'))
+                            host = "BuzzHeavier"
+                            break
+                        except NoSuchElementException:
+                            pass
+                        time.sleep(.1)
+
                     if host == "null":
                         raise RuntimeError("No valid SteamRip hoster.")
-                    else:
-                        useroutput(f"Using {host} hoster")
+
+                    useroutput(f"Using {host} hoster")
                     output_path = os.path.join(game_dir, rar_name)
-                    download_file(extract_direct_link_from_page(driver, host), output_path, "SteamRip")
+
+                    file_url, cookies = extract_direct_link_from_page(driver, host)
+
+
+                    download_file(file_url, output_path, "SteamRip", cookies=cookies)
+
+
                     extract(output_path, os.path.join(game_dir, "extract"))
                     move_game(game_dir, game_sanitized)
                     useroutput("✅ SteamRip install complete.")
+
                 except Exception as e:
                     print(f"SteamRip failed: {e}")
                     return
-
             # === OnlineFix === #
 
             if messagebox.askyesno("User Input", f"Do you want to fix this game for online?"):
                 useroutput("Fixing game...")
                 try:
                     driver.get(f"https://online-fix.me/index.php?do=search&subaction=search&story={game.translate(str.maketrans('', '', r',.:;\'\"[]\\|'))}")
-                    time.sleep(5)
-                    driver.find_element(By.NAME, "login_name").send_keys("Anden_5335")
-                    driver.find_element(By.NAME, "login_password").send_keys("01q9g29dc12")
+                    for x, i in enumerate(range(100)):
+                        if x == 100: raise Exception("Browser Timeout")
+                        try:
+                            driver.find_element(By.NAME, "login_name").send_keys("Anden_5335")
+                            driver.find_element(By.NAME, "login_password").send_keys("01q9g29dc12")
+                            break
+                        except NoSuchElementException:pass
+                        time.sleep(.1)
                     driver.execute_script("dologin();")
-                    time.sleep(5)
-                    gameOptions = driver.find_elements(By.CLASS_NAME, "news-search")
+                    for x, i in enumerate(range(100)):
+                        if x == 100: raise Exception("Browser Timeout")
+                        try:
+                            gameOptions = driver.find_elements(By.CLASS_NAME, "news-search")
+                            break
+                        except NoSuchElementException: pass
+                        time.sleep(.1)
                     game_links = [i.find_element(By.CLASS_NAME, "big-link").get_attribute("href") for i in gameOptions]
                     for x, result in enumerate(game_links[:3]):
                         if messagebox.askyesno("User Input",f"Is {result} your game?"):
                             driver.get(result)
                             break
-                    time.sleep(5)
-                    try:
-                        link = driver.find_element(By.XPATH, f"//a[contains(@href,'https://uploads.online-fix.me:2053/uploads/')]")
-                        url = link.get_attribute("href")
-                    except:
-                        link = driver.find_element(By.XPATH, f"//a[contains(@href,'https://hosters.online-fix.me:2053/')]")
-                        url = link.get_attribute("href")
+                    for x, i in enumerate(range(100)):
+                        if x == 100: raise Exception("Browser Timeout")
+                        try:
+                            link = driver.find_element(By.XPATH, f"//a[contains(@href,'https://uploads.online-fix.me:2053/uploads/')]")
+                            url = link.get_attribute("href")
+                            break
+                        except NoSuchElementException:
+                            try:
+                                link = driver.find_element(By.XPATH, f"//a[contains(@href,'https://hosters.online-fix.me:2053/')]")
+                                url = link.get_attribute("href")
+                                break
+                            except NoSuchElementException:pass
+                        time.sleep(.1)
                     useroutput("Fix found")
                     driver.execute_script("arguments[0].click();", link)
-                    time.sleep(5)
+                    time.sleep(3)
                     driver.get(url)
-                    time.sleep(5)
-                    driver.find_element(By.XPATH, "//a[contains(@href,'Fix%20Repair/')]").click()
-                    time.sleep(5)
+                    for x, i in enumerate(range(100)):
+                        if x == 100: raise Exception("Browser Timeout")
+                        try:
+                            driver.find_element(By.XPATH, "//a[contains(@href,'Fix%20Repair/')]").click()
+                            break
+                        except NoSuchElementException:pass
+                        time.sleep(.1)
                     fixrepairurl = driver.find_element(By.XPATH, "/html/body/pre/a[2]").get_attribute("href")
                     cookies_dict = {c['name']: c['value'] for c in driver.get_cookies()}
                     cookies = {
@@ -610,7 +823,7 @@ def start_reinstall_thread():
 
 if __name__ == "__main__":
     latest = get_latest_version()
-    current = "1.0.8"
+    current = "1.0.9"
 
     if latest and latest != current:
         print(f"New version {latest} found! Updating...")
